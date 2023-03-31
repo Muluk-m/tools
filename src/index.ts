@@ -1,3 +1,4 @@
+import fs from 'fs'
 import path from 'path'
 import express from 'express'
 import formidable from 'formidable'
@@ -6,6 +7,8 @@ import { sendResponse } from './utils'
 
 const app = express()
 const router = express.Router()
+const TMP_PATH = path.resolve(__dirname, '..', '.tmp')
+const SOURCE_MAP_PATH = path.resolve(__dirname, '..', '.sourcemap')
 
 app.use(express.static('public'))
 app.use(express.json())
@@ -21,24 +24,59 @@ router.post('/upload', async (req, res) => {
   try {
     const form = formidable({
       keepExtensions: true,
-      uploadDir: path.resolve(__dirname, '../.tmp/'),
+      uploadDir: TMP_PATH,
+      filename: (name, extensions) => {
+        return name + extensions
+      },
     })
-
-    globalThis.console.log(req.headers, form)
 
     form.parse(req, async (err, fields, files) => {
       if (err) {
         res.send(sendResponse({ type: 'Fail', message: err.message }))
         return
       }
-      const filePath = (files.file as any)?.filepath
 
-      res.send(
-        sendResponse({
-          type: 'Success',
-          data: filePath,
-        }),
-      )
+      try {
+        const { version, project } = fields
+
+        if (!version || !project) {
+          res.send(
+            sendResponse({
+              type: 'Fail',
+              message: 'Missing field version or project',
+            }),
+          )
+          return
+        }
+
+        for (const key of Object.keys(files)) {
+          const file = files[key]
+          const target = path.join(SOURCE_MAP_PATH, project as string, version as string)
+          const { filepath: source, newFilename: filename } = file as any
+
+          if (!fs.existsSync(target))
+            fs.mkdirSync(target, { recursive: true })
+
+          fs.rename(source, path.join(target, filename), (err) => {
+            if (err) {
+              sendResponse({
+                type: 'Fail',
+                message: 'Failed',
+              })
+            }
+          })
+        }
+
+        res.send(
+          sendResponse({
+            type: 'Success',
+            message: 'Success',
+          }),
+        )
+      }
+      catch (e) {
+        globalThis.console.log(e)
+      }
     })
   }
   catch (error) {
