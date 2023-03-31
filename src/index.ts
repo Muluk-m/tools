@@ -1,10 +1,8 @@
+import path from 'path'
 import express from 'express'
-import type { RequestProps } from './types'
-import type { ChatMessage } from './chatgpt'
-import { chatConfig, chatReplyProcess, currentModel } from './chatgpt'
-import { auth } from './middleware/auth'
-import { limiter } from './middleware/limiter'
-import { isNotEmptyString } from './utils/is'
+import formidable from 'formidable'
+import { parserStack } from './tools'
+import { sendResponse } from './utils'
 
 const app = express()
 const router = express.Router()
@@ -19,69 +17,71 @@ app.all('*', (_, res, next) => {
   next()
 })
 
-router.post('/chat-process', [auth, limiter], async (req, res) => {
-  res.setHeader('Content-type', 'application/octet-stream')
-
+router.post('/upload', async (req, res) => {
   try {
-    const { prompt, options = {}, systemMessage } = req.body as RequestProps
-    let firstChunk = true
-    await chatReplyProcess({
-      message: prompt,
-      lastContext: options,
-      process: (chat: ChatMessage) => {
-        res.write(firstChunk ? JSON.stringify(chat) : `\n${JSON.stringify(chat)}`)
-        firstChunk = false
-      },
-      systemMessage,
+    const form = formidable({
+      keepExtensions: true,
+      uploadDir: path.resolve(__dirname, '../.tmp/'),
+    })
+
+    globalThis.console.log(req.headers, form)
+
+    form.parse(req, async (err, fields, files) => {
+      if (err) {
+        res.send(sendResponse({ type: 'Fail', message: err.message }))
+        return
+      }
+      const filePath = (files.file as any)?.filepath
+
+      res.send(
+        sendResponse({
+          type: 'Success',
+          data: filePath,
+        }),
+      )
     })
   }
   catch (error) {
-    res.write(JSON.stringify(error))
-  }
-  finally {
-    res.end()
+    globalThis.console.log(error)
+    res.send(sendResponse({ type: 'Fail', message: error.message }))
   }
 })
 
-router.post('/config', auth, async (req, res) => {
+router.post('/parser-error', async (req, res) => {
   try {
-    const response = await chatConfig()
-    res.send(response)
+    const form = formidable({
+      keepExtensions: true,
+      uploadDir: path.resolve(__dirname, '../.tmp/'),
+    })
+
+    form.parse(req, async (err, fields, files) => {
+      if (err) {
+        res.send(sendResponse({ type: 'Fail', message: err.message }))
+        return
+      }
+
+      const filePath = (files.file as any)?.filepath
+
+      if (!filePath) {
+        res.send(
+          sendResponse({ type: 'Fail', message: 'Filepath is missing' }),
+        )
+        return
+      }
+
+      const response = await parserStack(fields.stack as string, filePath)
+      res.send(response)
+    })
   }
   catch (error) {
-    res.send(error)
-  }
-})
-
-router.post('/session', async (req, res) => {
-  try {
-    const AUTH_SECRET_KEY = process.env.AUTH_SECRET_KEY
-    const hasAuth = isNotEmptyString(AUTH_SECRET_KEY)
-    res.send({ status: 'Success', message: '', data: { auth: hasAuth, model: currentModel() } })
-  }
-  catch (error) {
-    res.send({ status: 'Fail', message: error.message, data: null })
-  }
-})
-
-router.post('/verify', async (req, res) => {
-  try {
-    const { token } = req.body as { token: string }
-    if (!token)
-      throw new Error('Secret key is empty')
-
-    if (process.env.AUTH_SECRET_KEY !== token)
-      throw new Error('密钥无效 | Secret key is invalid')
-
-    res.send({ status: 'Success', message: 'Verify successfully', data: null })
-  }
-  catch (error) {
-    res.send({ status: 'Fail', message: error.message, data: null })
+    globalThis.console.log(error)
+    res.send(sendResponse({ type: 'Fail', message: error.message }))
   }
 })
 
 app.use('', router)
-app.use('/api', router)
 app.set('trust proxy', 1)
 
-app.listen(3100, () => globalThis.console.log('Server is running on port 3100'))
+app.listen(3100, () =>
+  globalThis.console.log('Server is running on port 3100'),
+)

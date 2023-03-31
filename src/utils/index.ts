@@ -14,9 +14,11 @@ export function sendResponse<T>(options: SendResponseOptions<T>) {
   }
 
   // eslint-disable-next-line prefer-promise-reject-errors
-  return Promise.reject({
+  return Promise.resolve({
     message: options.message ?? 'Failed',
     data: options.data ?? null,
     status: options.type,
   })
 }
+
+export * from './stackParser'
