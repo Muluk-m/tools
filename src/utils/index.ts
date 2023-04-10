@@ -6,19 +6,18 @@ interface SendResponseOptions<T = any> {
 
 export function sendResponse<T>(options: SendResponseOptions<T>) {
   if (options.type === 'Success') {
-    return Promise.resolve({
+    return {
       message: options.message ?? null,
       data: options.data ?? null,
-      status: options.type,
-    })
+      success: true,
+    }
   }
 
-  // eslint-disable-next-line prefer-promise-reject-errors
-  return Promise.resolve({
+  return {
     message: options.message ?? 'Failed',
     data: options.data ?? null,
-    status: options.type,
-  })
+    success: false,
+  }
 }
 
 export * from './stackParser'
